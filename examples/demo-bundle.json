@@ -1,0 +1,39 @@
+{
+  "bundle_version": 1,
+  "tenant_id": "demo",
+  "app_id": "claims",
+  "environment": "staging",
+  "repositories": [
+    {"id": "claims-app", "kind": "application", "commit_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+    {"id": "claims-infra", "kind": "infrastructure", "commit_sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}
+  ],
+  "sources": [
+    {"id": "sast-001", "kind": "sarif", "observed_at": "2026-11-02T01:00:00Z", "max_age_hours": 24, "repository_id": "claims-app", "commit_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+    {"id": "posture-001", "kind": "cloud_posture", "observed_at": "2026-11-02T01:00:00Z", "max_age_hours": 24},
+    {"id": "deployment-001", "kind": "deployment_manifest", "observed_at": "2026-11-02T01:00:00Z", "max_age_hours": 24},
+    {"id": "threat-model-001", "kind": "threat_composer_export", "observed_at": "2026-11-01T01:00:00Z", "max_age_hours": 168},
+    {"id": "historical-test-001", "kind": "verification", "observed_at": "2026-11-02T01:00:00Z", "max_age_hours": 168, "verified_commit_sha": "cccccccccccccccccccccccccccccccccccccccc", "verified_repository_id": "claims-infra", "verification_result": "passed"}
+  ],
+  "resources": [
+    {
+      "id": "claims-documents-bucket",
+      "mapping_source_id": "deployment-001",
+      "owners": [
+        {"role": "application", "repository_id": "claims-app", "path": "src/storage.py", "commit_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+        {"role": "infrastructure", "repository_id": "claims-infra", "path": "modules/storage/main.tf", "commit_sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}
+      ]
+    }
+  ],
+  "findings": [
+    {"id": "F-CLOUD-001", "source_id": "posture-001", "title": "Synthetic finding: bucket policy permits public access", "severity": "high", "state": "open", "target": {"resource_id": "claims-documents-bucket"}},
+    {"id": "F-CODE-001", "source_id": "sast-001", "title": "Synthetic finding: untrusted path reaches file reader", "severity": "high", "state": "open", "target": {"repository_id": "claims-app", "path": "src/downloads.py"}}
+  ],
+  "controls": [
+    {"id": "storage-public-access", "state": "failed", "evidence_source_ids": ["posture-001"]},
+    {"id": "application-authorization", "state": "unknown", "evidence_source_ids": []},
+    {"id": "claimed-encryption", "state": "passed", "evidence_source_ids": []}
+  ],
+  "fixes": [
+    {"id": "FIX-001", "finding_id": "F-CLOUD-001", "repository_id": "claims-infra", "commit_sha": "cccccccccccccccccccccccccccccccccccccccc", "outcome": "verified", "summary": "Synthetic historical example: restrict bucket policy; preserve existing encryption settings. This is not a fix performed by this compiler and does not close the current finding.", "recorded_at": "2026-11-02T01:30:00Z", "verification_source_ids": ["historical-test-001"]}
+  ]
+}
