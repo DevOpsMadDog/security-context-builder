@@ -54,10 +54,10 @@ The synthetic fixture names/ARNS are examples only. Do not use the fixture as ac
 
 ## First run and gating
 
-1. Pre-provision an isolated sandbox VPC, remote Terraform state bucket with versioning, S3 lockfile permissions and encryption, certificate and ECR repository.
+1. Pre-provision an isolated sandbox VPC, Terraform S3 remote-state bucket with versioning, encryption and lockfile permissions (Terraform >=1.10), certificate and ECR repository.
 2. Push the copied starter files to the two Azure Repos repositories.
 3. Configure environment approvals, AWS permissions (scoped to sandbox), VPC subnet reachability and GitHub service connection.
-4. Run pattern1-deploy manually for sandbox only; inspect Terraform plan and resulting deployment.json. The sample performs plan and apply inside a gated deployment job; for stricter change management split this into a plan artifact and separate approved apply that verifies plan provenance.
+4. Run pattern1-deploy manually for sandbox only. Its BuildAndPlan stage produces a **restricted terraform-plan artifact** containing tfplan, plan.txt and intent.json; reviewers inspect that plan before approving the separate security-sandbox environment-gated ApprovedApply stage. The apply stage uses the saved plan and checks the matching infrastructure SHA.
 5. Have authenticated scanner adapters publish a normalized-scans.json aligned with deployed app SHA and AWS account.
 6. Select *both* upstream pipeline run versions explicitly when launching pattern1-context, and choose the correct app/infra commit revisions.
 7. Review generated manifest/finding packets; only then propose agent-driven PRs.

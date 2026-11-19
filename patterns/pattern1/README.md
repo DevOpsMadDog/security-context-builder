@@ -89,7 +89,7 @@ This is the key design constraint: a scanner finding is **not** sufficient to au
 1. Scrum master opens a Jira ticket, e.g. APPSEC-101, from Veracode, Inspector or Prisma. Ticket is a trigger/reference, not a source of security truth.
 2. App CI checks out vulnapp-app at its resolved Git SHA; Terraform CI checks out vuln-app-infra at its resolved Git SHA.
 3. Azure Pipelines builds and tests the Node.js app, publishes its ECR image by commit tag, and records the resulting immutable image digest.
-4. The gated deployment pipeline runs terraform init, validate, plan, reviewed approval, and apply to the approved sandbox environment. Terraform remote state must use locking and least privilege.
+4. The deployment pipeline publishes an immutable-image Terraform plan artifact, then a separate Azure Environment-approved job applies the saved plan to the sandbox (never directly from a PR). Terraform remote state must use locking and least privilege.
 5. The pipeline verifies ECS service stability and obtains task definition, target group, ALB, WAF, AWS account/region plus Terraform outputs. It emits a deployment manifest with the exact app and infra Git SHAs.
 6. Enterprise adapters ingest Veracode SARIF/SCA, Inspector and Prisma **as external evidence**. They normalize product-specific formats to a reviewed mapping contract; no missing scanner is silently treated as zero findings.
 7. The normalization/assembly script builds one canonical JSON bundle for tenant + application + environment using the deployment record, normalized scanner evidence, exact Git SHAs and source TTLs.

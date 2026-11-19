@@ -57,8 +57,20 @@ def main():
     if not api or not DIGEST.search(api.get("image", "")):
         raise ValueError("task definition image is not digest pinned")
     lb = command("aws", "elbv2", "describe-load-balancers", "--load-balancer-arns", val("alb_arn"))["LoadBalancers"]
-    if len(lb) != 1:
-        raise ValueError("ALB mapping is ambiguous")
+    if len(lb) != 1 or lb[0].get("Scheme") != "internet-facing" or lb[0].get("Type") != "application":
+        raise ValueError("ALB mapping, exposure or type differs from expected sandbox topology")
+    awsvpc = svc.get("networkConfiguration", {}).get("awsvpcConfiguration", {})
+    if awsvpc.get("assignPublicIp") != "DISABLED":
+        raise ValueError("Fargate tasks must have public IP assignment disabled")
+    groups = svc.get("loadBalancers", [])
+    if len(groups) != 1 or not groups[0].get("targetGroupArn"):
+        raise ValueError("service must have one known ALB target group")
+    target_group_arn = groups[0]["targetGroupArn"]
+    target_health = command("aws", "elbv2", "describe-target-health", "--target-group-arn", target_group_arn)
+    healthy_count = sum(1 for t in target_health.get("TargetHealthDescriptions", [])
+                        if t.get("TargetHealth", {}).get("State") == "healthy")
+    if healthy_count < 1:
+        raise ValueError("no healthy ALB targets")
     acl = command("aws", "wafv2", "get-web-acl-for-resource", "--resource-arn", val("alb_arn"))
     if acl.get("WebACL", {}).get("ARN") != val("waf_web_acl_arn"):
         raise ValueError("actual WAF association is absent or different from Terraform")
@@ -79,6 +91,10 @@ def main():
         "ecs_task_definition_arn": svc["taskDefinition"],
         "ecr_image_uri": api["image"],
         "alb_arn": val("alb_arn"),
+        "target_group_arn": target_group_arn,
+        "healthy_target_count": healthy_count,
+        "task_security_group_ids": awsvpc.get("securityGroups", []),
+        "task_assign_public_ip": awsvpc["assignPublicIp"],
         "waf_web_acl_arn": val("waf_web_acl_arn"),
         "resources": [{
             "id": "ecs-vulnapp-service",

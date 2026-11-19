@@ -1,6 +1,6 @@
 # Copy into Azure Repos: vuln-app-infra/azure-pipelines.deploy.yml
-# Human-triggered, sandbox-only. Requires agent with AWS CLI v2, Docker,
-# Terraform >=1.10, Node/npm and permission to use secure variable group.
+# Pattern1: manual, sandbox-only, immutable image + reviewed Terraform plan.
+# Agent prerequisite: AWS CLI v2, Docker, Terraform >=1.10, Node/npm.
 trigger: none
 pr: none
 
@@ -8,23 +8,104 @@ resources:
   repositories:
     - repository: vulnapp
       type: git
-      name: vulnapp-app   # same ADO project; use Project/vulnapp-app for cross-project
+      name: vulnapp-app  # or Project/vulnapp-app if cross-project
       ref: refs/heads/main
 
 variables:
   - group: pattern1-aws-sandbox
   - name: awsRegion
     value: ap-southeast-2
-  - name: environmentName
-    value: sandbox
 
 stages:
-  - stage: SandboxDeploy
-    displayName: Approved Terraform and ECS Fargate deployment
+  - stage: BuildAndPlan
+    displayName: Build and export Terraform plan for review
     jobs:
-      - deployment: DeploySandbox
-        displayName: Build, push by digest and apply
-        environment: security-sandbox  # configure environment approvals in ADO UI
+      - job: Plan
+        pool:
+          vmImage: ubuntu-latest
+        steps:
+          - checkout: self
+            path: s/infra
+            fetchDepth: 0
+          - checkout: vulnapp
+            path: s/app
+            fetchDepth: 0
+          - bash: |
+              set -euo pipefail
+              command -v aws
+              command -v terraform
+              command -v docker
+              command -v node
+              test -f "$(Pipeline.Workspace)/s/app/Dockerfile"
+              test -f "$(Pipeline.Workspace)/s/infra/terraform/main.tf"
+              APP_SHA="$(git -C "$(Pipeline.Workspace)/s/app" rev-parse HEAD)"
+              INFRA_SHA="$(git -C "$(Pipeline.Workspace)/s/infra" rev-parse HEAD)"
+              echo "##vso[task.setvariable variable=appSha]$APP_SHA"
+              echo "##vso[task.setvariable variable=infraSha]$INFRA_SHA"
+            displayName: Capture exact source revisions
+          - bash: |
+              set -euo pipefail
+              npm ci
+              npm run build --if-present
+              npm test
+              # Add Playwright E2E against an isolated test target in real app CI.
+            workingDirectory: $(Pipeline.Workspace)/s/app
+            displayName: Clean Node build and unit tests
+          - bash: |
+              set -euo pipefail
+              aws sts get-caller-identity --query Account --output text >/dev/null
+              aws ecr get-login-password --region "$AWS_DEFAULT_REGION" |
+                docker login --username AWS --password-stdin "$(ECR_REGISTRY)"
+              docker build -t "$(ECR_REPOSITORY_URI):$(appSha)" "$(Pipeline.Workspace)/s/app"
+              docker push "$(ECR_REPOSITORY_URI):$(appSha)"
+              DIGEST="$(aws ecr describe-images --repository-name "$(ECR_REPOSITORY_NAME)" --image-ids imageTag="$(appSha)" --query 'imageDetails[0].imageDigest' --output text)"
+              case "$DIGEST" in sha256:*) ;; *) echo "Invalid ECR digest" >&2; exit 1 ;; esac
+              echo "##vso[task.setvariable variable=imageUri]$(ECR_REPOSITORY_URI)@$DIGEST"
+            displayName: Build and push image, record immutable digest
+            env:
+              AWS_ACCESS_KEY_ID: $(AWS_ACCESS_KEY_ID)
+              AWS_SECRET_ACCESS_KEY: $(AWS_SECRET_ACCESS_KEY)
+              AWS_SESSION_TOKEN: $(AWS_SESSION_TOKEN)
+              AWS_DEFAULT_REGION: $(awsRegion)
+          - bash: |
+              set -euo pipefail
+              terraform init -input=false \
+                -backend-config="bucket=$(TF_BACKEND_BUCKET)" \
+                -backend-config="key=$(TF_BACKEND_KEY)" \
+                -backend-config="region=$(awsRegion)" \
+                -backend-config="use_lockfile=true"
+              terraform fmt -no-color
+              terraform validate
+              mkdir -p "$(Pipeline.Workspace)/plan-output"
+              terraform plan -input=false \
+                -out="$(Pipeline.Workspace)/plan-output/tfplan" \
+                -var="image_uri=$(imageUri)" -var="aws_region=$(awsRegion)" \
+                -var="vpc_id=$(VPC_ID)" -var="certificate_arn=$(ACM_CERT_ARN)" \
+                -var="ecr_repository_name=$(ECR_REPOSITORY_NAME)" \
+                -var="public_subnet_ids=$(PUBLIC_SUBNETS_HCL)" \
+                -var="private_subnet_ids=$(PRIVATE_SUBNETS_HCL)"
+              # Terraform plans and views may contain secrets; publish restricted artifacts.
+              terraform show -no-color "$(Pipeline.Workspace)/plan-output/tfplan" > "$(Pipeline.Workspace)/plan-output/plan.txt"
+              python3 -c 'import json,sys;json.dump({"app_sha":sys.argv[1],"infra_sha":sys.argv[2],"image_uri":sys.argv[3]},open(sys.argv[4],"w"))' \
+                "$(appSha)" "$(infraSha)" "$(imageUri)" "$(Pipeline.Workspace)/plan-output/intent.json"
+            workingDirectory: $(Pipeline.Workspace)/s/infra/terraform
+            displayName: Terraform init, validate, plan and provenance
+            env:
+              AWS_ACCESS_KEY_ID: $(AWS_ACCESS_KEY_ID)
+              AWS_SECRET_ACCESS_KEY: $(AWS_SECRET_ACCESS_KEY)
+              AWS_SESSION_TOKEN: $(AWS_SESSION_TOKEN)
+              AWS_DEFAULT_REGION: $(awsRegion)
+          - publish: $(Pipeline.Workspace)/plan-output
+            artifact: terraform-plan
+            displayName: Publish restricted plan for human review
+
+  - stage: ApprovedApply
+    displayName: Approved apply of previously published plan
+    dependsOn: BuildAndPlan
+    condition: succeeded()
+    jobs:
+      - deployment: ApplySandbox
+        environment: security-sandbox  # configure mandatory reviewers/checks in ADO UI
         pool:
           vmImage: ubuntu-latest
         strategy:
@@ -34,69 +115,29 @@ stages:
                 - checkout: self
                   path: s/infra
                   fetchDepth: 0
-                - checkout: vulnapp
-                  path: s/app
-                  fetchDepth: 0
+                - download: current
+                  artifact: terraform-plan
                 - bash: |
                     set -euo pipefail
-                    command -v aws
-                    command -v terraform
-                    command -v docker
-                    command -v node
-                    test -f "$(Pipeline.Workspace)/s/app/Dockerfile"
-                    test -f "$(Pipeline.Workspace)/s/infra/terraform/main.tf"
-                    APP_SHA="$(git -C "$(Pipeline.Workspace)/s/app" rev-parse HEAD)"
-                    INFRA_SHA="$(git -C "$(Pipeline.Workspace)/s/infra" rev-parse HEAD)"
-                    echo "##vso[task.setvariable variable=appSha]$APP_SHA"
-                    echo "##vso[task.setvariable variable=infraSha]$INFRA_SHA"
-                  displayName: Validate source and record commits
-                - bash: |
-                    set -euo pipefail
-                    npm ci
-                    npm run build --if-present
-                    npm test
-                    # Add npm run test:e2e after provisioning a separate test target.
-                  workingDirectory: $(Pipeline.Workspace)/s/app
-                  displayName: Node.js build and unit tests
-                - bash: |
-                    set -euo pipefail
-                    aws sts get-caller-identity --query Account --output text >/dev/null
-                    aws ecr get-login-password --region "$AWS_DEFAULT_REGION" |
-                      docker login --username AWS --password-stdin "$(ECR_REGISTRY)"
-                    docker build -t "$(ECR_REPOSITORY_URI):$(appSha)" "$(Pipeline.Workspace)/s/app"
-                    docker push "$(ECR_REPOSITORY_URI):$(appSha)"
-                    IMAGE_DIGEST="$(aws ecr describe-images --repository-name "$(ECR_REPOSITORY_NAME)" --image-ids imageTag="$(appSha)" --query 'imageDetails[0].imageDigest' --output text)"
-                    case "$IMAGE_DIGEST" in sha256:*) ;; *) exit 1 ;; esac
-                    IMAGE_URI="$(ECR_REPOSITORY_URI)@$IMAGE_DIGEST"
-                    echo "##vso[task.setvariable variable=imageUri]$IMAGE_URI"
-                  displayName: Push immutable image to existing ECR repository
-                  env:
-                    AWS_ACCESS_KEY_ID: $(AWS_ACCESS_KEY_ID)
-                    AWS_SECRET_ACCESS_KEY: $(AWS_SECRET_ACCESS_KEY)
-                    AWS_SESSION_TOKEN: $(AWS_SESSION_TOKEN)
-                    AWS_DEFAULT_REGION: $(awsRegion)
-                - bash: |
-                    set -euo pipefail
+                    INTENT="$(Pipeline.Workspace)/terraform-plan/intent.json"
+                    TFPLAN="$(Pipeline.Workspace)/terraform-plan/tfplan"
+                    test -f "$INTENT" && test -f "$TFPLAN"
+                    APP_SHA="$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["app_sha"])' "$INTENT")"
+                    INFRA_SHA="$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["infra_sha"])' "$INTENT")"
+                    test "$(git -C "$(Pipeline.Workspace)/s/infra" rev-parse HEAD)" = "$INFRA_SHA"
                     terraform init -input=false \
                       -backend-config="bucket=$(TF_BACKEND_BUCKET)" \
                       -backend-config="key=$(TF_BACKEND_KEY)" \
                       -backend-config="region=$(awsRegion)" \
                       -backend-config="use_lockfile=true"
-                    terraform fmt -no-color
-                    terraform validate
-                    terraform plan -input=false -out=tfplan \
-                      -var="image_uri=$(imageUri)" -var="aws_region=$(awsRegion)" \
-                      -var="vpc_id=$(VPC_ID)" \
-                      -var="certificate_arn=$(ACM_CERT_ARN)" \
-                      -var="ecr_repository_name=$(ECR_REPOSITORY_NAME)" \
-                      -var="public_subnet_ids=$(PUBLIC_SUBNETS_HCL)" \
-                      -var="private_subnet_ids=$(PRIVATE_SUBNETS_HCL)"
-                    # Approvals must be configured on security-sandbox; this is NOT an automated PR apply.
-                    terraform apply -input=false -auto-approve tfplan
-                    aws ecs wait services-stable \
-                      --cluster "$(ECS_CLUSTER_NAME)" --services "$(ECS_SERVICE_NAME)"
+                    terraform apply -input=false "$TFPLAN"
+                    CLUSTER="$(terraform output -raw ecs_cluster_name)"
+                    SERVICE="$(terraform output -raw ecs_service_name)"
+                    aws ecs wait services-stable --cluster "$CLUSTER" --services "$SERVICE"
+                    echo "##vso[task.setvariable variable=verifiedAppSha]$APP_SHA"
+                    echo "##vso[task.setvariable variable=verifiedInfraSha]$INFRA_SHA"
                   workingDirectory: $(Pipeline.Workspace)/s/infra/terraform
-                  displayName: Terraform apply after Azure Environment approval
+                  displayName: Apply exact reviewed plan to gated sandbox
                   env:
                     AWS_ACCESS_KEY_ID: $(AWS_ACCESS_KEY_ID)
                     AWS_SECRET_ACCESS_KEY: $(AWS_SECRET_ACCESS_KEY)
@@ -107,9 +148,9 @@ stages:
                     python3 "$(Pipeline.Workspace)/s/infra/scripts/capture_deployment.py" \
                       --terraform-dir "$(Pipeline.Workspace)/s/infra/terraform" \
                       --tenant demo --app vulnapp --environment sandbox \
-                      --app-sha "$(appSha)" --infra-sha "$(infraSha)" \
+                      --app-sha "$(verifiedAppSha)" --infra-sha "$(verifiedInfraSha)" \
                       --out "$(Pipeline.Workspace)/deployment.json"
-                  displayName: Collect actual AWS deployment and provenance
+                  displayName: Collect AWS service/task/WAF and revision evidence
                   env:
                     AWS_ACCESS_KEY_ID: $(AWS_ACCESS_KEY_ID)
                     AWS_SECRET_ACCESS_KEY: $(AWS_SECRET_ACCESS_KEY)
