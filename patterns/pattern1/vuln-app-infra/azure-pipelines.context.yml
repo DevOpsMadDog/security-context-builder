@@ -1,0 +1,68 @@
+# Copy into Azure Repos: vuln-app-infra/azure-pipelines.context.yml
+# Requires two real upstream pipeline artifacts; no synthetic findings in CI.
+# Provision a GitHub service connection named security-context-github.
+trigger: none
+pr: none
+
+resources:
+  repositories:
+    - repository: vulnapp
+      type: git
+      name: vulnapp-app  # same project or Project/vulnapp-app
+      ref: refs/heads/main
+    - repository: securitycontext
+      type: github
+      endpoint: security-context-github
+      name: DevOpsMadDog/security-context-builder
+      ref: refs/heads/main
+  pipelines:
+    - pipeline: deployed
+      source: pattern1-deploy
+      trigger: none
+    - pipeline: scans
+      source: pattern1-normalized-security-scans
+      trigger: none
+
+variables:
+  - group: pattern1-context  # CONTEXT_BUILDER_SHA must be an approved 40-char commit SHA
+
+pool:
+  vmImage: ubuntu-latest
+
+steps:
+  - checkout: self
+    path: s/infra
+    fetchDepth: 0
+  - checkout: vulnapp
+    path: s/app
+    fetchDepth: 0
+  - checkout: securitycontext
+    path: s/context
+    fetchDepth: 0
+  - download: deployed
+    artifact: deployment-manifest
+  - download: scans
+    artifact: normalized-scans
+  - bash: |
+      set -euo pipefail
+      test "$(CONTEXT_BUILDER_SHA)" != ""
+      case "$(CONTEXT_BUILDER_SHA)" in
+        *[!a-f0-9]* ) echo "Invalid pinned context SHA" >&2; exit 2 ;;
+      esac
+      test "$(printf %s "$(CONTEXT_BUILDER_SHA)" | wc -c)" -eq 40
+      git -C "$(Pipeline.Workspace)/s/context" checkout --detach "$(CONTEXT_BUILDER_SHA)"
+      test "$(git -C "$(Pipeline.Workspace)/s/context" rev-parse HEAD)" = "$(CONTEXT_BUILDER_SHA)"
+      python3 "$(Pipeline.Workspace)/s/context/patterns/pattern1/scripts/build_bundle.py" \
+        --deployment "$(Pipeline.Workspace)/deployed/deployment-manifest/deployment.json" \
+        --scans "$(Pipeline.Workspace)/scans/normalized-scans/normalized-scans.json" \
+        --app-sha "$(git -C "$(Pipeline.Workspace)/s/app" rev-parse HEAD)" \
+        --infra-sha "$(git -C "$(Pipeline.Workspace)/s/infra" rev-parse HEAD)" \
+        --out "$(Pipeline.Workspace)/canonical.bundle.json"
+      python3 "$(Pipeline.Workspace)/s/context/context_compiler.py" compile \
+        --input "$(Pipeline.Workspace)/canonical.bundle.json" \
+        --out "$(Pipeline.Workspace)/security-evidence" \
+        --as-of "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    displayName: Validate committed source and compile scoped evidence
+  - publish: $(Pipeline.Workspace)/security-evidence/generated
+    artifact: security-context
+    displayName: Publish generated security context (restricted access)

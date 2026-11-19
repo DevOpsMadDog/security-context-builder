@@ -1,0 +1,28 @@
+{
+  "tenant_id": "demo",
+  "app_id": "vulnapp",
+  "environment": "sandbox",
+  "observed_at": "2026-11-19T12:00:00Z",
+  "app_commit_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "infra_commit_sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "aws_account_id": "111122223333",
+  "aws_region": "ap-southeast-2",
+  "ecs_cluster_name": "vulnapp-sandbox",
+  "ecs_service_name": "vulnapp-sandbox",
+  "ecs_service_arn": "arn:aws:ecs:ap-southeast-2:111122223333:service/vulnapp-sandbox/vulnapp-sandbox",
+  "ecs_task_definition_arn": "arn:aws:ecs:ap-southeast-2:111122223333:task-definition/vulnapp-sandbox:9",
+  "ecr_image_uri": "111122223333.dkr.ecr.ap-southeast-2.amazonaws.com/vulnapp@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+  "alb_arn": "arn:aws:elasticloadbalancing:ap-southeast-2:111122223333:loadbalancer/app/vulnapp-sandbox/1234567890123456",
+  "waf_web_acl_arn": "arn:aws:wafv2:ap-southeast-2:111122223333:regional/webacl/vulnapp-sandbox/11111111-1111-1111-1111-111111111111",
+  "resources": [
+    {
+      "id": "ecs-vulnapp-service",
+      "application_path": "src/server.js",
+      "infrastructure_path": "terraform/main.tf"
+    },
+    {
+      "id": "internet-alb",
+      "infrastructure_path": "terraform/main.tf"
+    }
+  ]
+}

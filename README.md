@@ -2,6 +2,10 @@
 
 Prepared on 2 November 2026 for an enterprise AppSec engineering system that learns architecture and requirements, reconstructs applications, correlates cloud/code findings, repairs through OpenSpec, verifies behaviour in controlled environments and preserves long-term engineering experience.
 
+## Reference implementation patterns
+
+- **[Pattern1 — Two Azure DevOps repositories, Terraform and AWS ECS Fargate](patterns/pattern1/README.md)**: Node.js application in vulnapp-app, Terraform/IaC in vuln-app-infra, approved Azure Pipelines build/deploy/context jobs, post-deploy ECS/ALB/WAF provenance, synthetic Veracode/Prisma/Inspector evidence and a working canonical-bundle assembly example. This pattern is a reference and has not been deployed.
+
 ## Start here
 
 Read [ENTERPRISE_APPSEC_BLUEPRINT.md](ENTERPRISE_APPSEC_BLUEPRINT.md) for the complete enterprise design. It reflects the expanded goal: versioned specification libraries owned by EA/technical leads, application and cloud readers, security-tool adapters, repair/test workers, local and cloud sandbox verification, and a durable knowledge base.

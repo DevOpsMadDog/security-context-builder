@@ -1,0 +1,138 @@
+{
+  "bundle_version": 1,
+  "tenant_id": "demo",
+  "app_id": "vulnapp",
+  "environment": "sandbox",
+  "repositories": [
+    {
+      "id": "vulnapp-app",
+      "kind": "application",
+      "commit_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "id": "vuln-app-infra",
+      "kind": "infrastructure",
+      "commit_sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    }
+  ],
+  "sources": [
+    {
+      "id": "deployment-observed",
+      "kind": "deployment_manifest",
+      "observed_at": "2026-11-19T12:00:00Z",
+      "max_age_hours": 24,
+      "aws_account_id": "111122223333",
+      "aws_region": "ap-southeast-2",
+      "ecs_cluster_name": "vulnapp-sandbox",
+      "ecs_service_name": "vulnapp-sandbox",
+      "ecs_service_arn": "arn:aws:ecs:ap-southeast-2:111122223333:service/vulnapp-sandbox/vulnapp-sandbox",
+      "ecs_task_definition_arn": "arn:aws:ecs:ap-southeast-2:111122223333:task-definition/vulnapp-sandbox:9",
+      "ecr_image_uri": "111122223333.dkr.ecr.ap-southeast-2.amazonaws.com/vulnapp@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "alb_arn": "arn:aws:elasticloadbalancing:ap-southeast-2:111122223333:loadbalancer/app/vulnapp-sandbox/1234567890123456",
+      "waf_web_acl_arn": "arn:aws:wafv2:ap-southeast-2:111122223333:regional/webacl/vulnapp-sandbox/11111111-1111-1111-1111-111111111111"
+    },
+    {
+      "id": "veracode-sca",
+      "kind": "sarif",
+      "observed_at": "2026-11-19T12:05:00Z",
+      "max_age_hours": 24,
+      "artifact_ref": "synthetic:veracode-sca.json",
+      "repository_id": "vulnapp-app",
+      "commit_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "id": "prisma-cspm",
+      "kind": "cloud_posture",
+      "observed_at": "2026-11-19T12:06:00Z",
+      "max_age_hours": 24,
+      "artifact_ref": "synthetic:prisma.json"
+    },
+    {
+      "id": "aws-inspector",
+      "kind": "container_vulnerability",
+      "observed_at": "2026-11-19T12:08:00Z",
+      "max_age_hours": 24,
+      "artifact_ref": "synthetic:inspector.json"
+    }
+  ],
+  "resources": [
+    {
+      "id": "ecs-vulnapp-service",
+      "mapping_source_id": "deployment-observed",
+      "owners": [
+        {
+          "role": "application",
+          "repository_id": "vulnapp-app",
+          "commit_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "path": "src/server.js"
+        },
+        {
+          "role": "infrastructure",
+          "repository_id": "vuln-app-infra",
+          "commit_sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "path": "terraform/main.tf"
+        }
+      ]
+    },
+    {
+      "id": "internet-alb",
+      "mapping_source_id": "deployment-observed",
+      "owners": [
+        {
+          "role": "infrastructure",
+          "repository_id": "vuln-app-infra",
+          "commit_sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "path": "terraform/main.tf"
+        }
+      ]
+    }
+  ],
+  "findings": [
+    {
+      "id": "VC-SCA-001",
+      "source_id": "veracode-sca",
+      "title": "Synthetic: dependency version reported vulnerable in package.json",
+      "severity": "high",
+      "state": "open",
+      "target": {
+        "repository_id": "vulnapp-app",
+        "path": "package.json"
+      }
+    },
+    {
+      "id": "PRISMA-001",
+      "source_id": "prisma-cspm",
+      "title": "Synthetic: task outbound HTTPS allowed to any destination",
+      "severity": "medium",
+      "state": "open",
+      "target": {
+        "resource_id": "ecs-vulnapp-service"
+      }
+    },
+    {
+      "id": "INSPECTOR-001",
+      "source_id": "aws-inspector",
+      "title": "Synthetic: deployed ECR image contains reported vulnerable package",
+      "severity": "high",
+      "state": "open",
+      "target": {
+        "resource_id": "ecs-vulnapp-service"
+      }
+    }
+  ],
+  "controls": [
+    {
+      "id": "waf-association-observed",
+      "state": "passed",
+      "evidence_source_ids": [
+        "deployment-observed"
+      ]
+    },
+    {
+      "id": "application-authz-unverified",
+      "state": "unknown",
+      "evidence_source_ids": []
+    }
+  ],
+  "fixes": []
+}

@@ -1,0 +1,63 @@
+{
+  "tenant_id": "demo",
+  "app_id": "vulnapp",
+  "environment": "sandbox",
+  "sources": [
+    {
+      "id": "veracode-sca",
+      "kind": "sarif",
+      "repository_role": "application",
+      "commit_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "observed_at": "2026-11-19T12:05:00Z",
+      "max_age_hours": 24,
+      "artifact_ref": "synthetic:veracode-sca.json",
+      "findings": [
+        {
+          "id": "VC-SCA-001",
+          "title": "Synthetic: dependency version reported vulnerable in package.json",
+          "severity": "high",
+          "state": "open",
+          "path": "package.json"
+        }
+      ]
+    },
+    {
+      "id": "prisma-cspm",
+      "kind": "cloud_posture",
+      "repository_role": "cloud",
+      "aws_account_id": "111122223333",
+      "aws_region": "ap-southeast-2",
+      "observed_at": "2026-11-19T12:06:00Z",
+      "max_age_hours": 24,
+      "artifact_ref": "synthetic:prisma.json",
+      "findings": [
+        {
+          "id": "PRISMA-001",
+          "title": "Synthetic: task outbound HTTPS allowed to any destination",
+          "severity": "medium",
+          "state": "open",
+          "resource_id": "ecs-vulnapp-service"
+        }
+      ]
+    },
+    {
+      "id": "aws-inspector",
+      "kind": "container_vulnerability",
+      "repository_role": "cloud",
+      "aws_account_id": "111122223333",
+      "aws_region": "ap-southeast-2",
+      "observed_at": "2026-11-19T12:08:00Z",
+      "max_age_hours": 24,
+      "artifact_ref": "synthetic:inspector.json",
+      "findings": [
+        {
+          "id": "INSPECTOR-001",
+          "title": "Synthetic: deployed ECR image contains reported vulnerable package",
+          "severity": "high",
+          "state": "open",
+          "resource_id": "ecs-vulnapp-service"
+        }
+      ]
+    }
+  ]
+}
